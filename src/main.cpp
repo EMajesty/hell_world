@@ -1,4 +1,3 @@
-#include <SDL2/SDL_video.h>
 #include <algorithm>
 #include <cstdio>
 #include <fstream>
@@ -6,11 +5,12 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <glm/glm.hpp>
 
 #include <SDL2/SDL.h>
 #include <GL/gl.h>
 
-#include "TriangulatePolygon.h"
+// #include "TriangulatePolygon.h"
 
 using namespace std;
 
@@ -22,9 +22,9 @@ struct TBFace
     float ux, uy, uz, uOffset;
     float vx, vy, vz, vOffset;
     float rotation, uScale, vScale;
-    int surfaceFlag = 0;
-    int contentsFlag = 0;
-    int value = 0;
+    // int surfaceFlag = 0;
+    // int contentsFlag = 0;
+    // int value = 0;
     string textureName;
 };
 
@@ -43,6 +43,67 @@ struct TBMap
 {
     vector<TBEntity> entities;
 };
+
+struct Plane {
+    glm::vec3 normal;
+    float d;
+    Plane(const glm::vec3& n, float dist) : normal(glm::normalize(n)), d(dist) {}
+    Plane(const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& p3) {
+        normal = glm::normalize(glm::cross(p2 - p1, p3 - p1));
+        d = -glm::dot(normal, p1);
+    }
+};
+
+struct Triangle {
+    glm::vec3 v0;
+    glm::vec3 v1;
+    glm::vec3 v2;
+    Triangle(const glm::vec3& a, const glm::vec3& b, const glm::vec3& c)
+        : v0(a), v1(b), v2(c) {}
+};
+
+bool Intersect(const Plane& a, const Plane& b, const Plane& c, glm::vec3& out) {
+    glm::vec3 n1 = a.normal, n2 = b.normal, n3 = c.normal;
+    float denom = glm::dot(n1, glm::cross(n2, n3));
+    if (fabs(denom) < 1e-6f) return false; // Nearly parallel, no valid intersection
+    out = (
+        -a.d * glm::cross(n2, n3)
+        -b.d * glm::cross(n3, n1)
+        -c.d * glm::cross(n1, n2)
+    ) / denom;
+    return true;
+}
+
+std::vector<glm::vec3> GetFacePolygon(const std::vector<Plane>& planes, int faceIndex) {
+    const auto& face = planes[faceIndex];
+    std::vector<glm::vec3> verts;
+    for (size_t i = 0; i < planes.size(); ++i) {
+        if (i == faceIndex) continue;
+        for (size_t j = i + 1; j < planes.size(); ++j) {
+            if (j == faceIndex) continue;
+            glm::vec3 p;
+            if (Intersect(face, planes[i], planes[j], p)) {
+                bool inside = true;
+                for (size_t k = 0; k < planes.size(); ++k) {
+                    if (k == faceIndex) continue;
+                    if (glm::dot(planes[k].normal, p) + planes[k].d > 0.01f) { // not inside volume
+                        inside = false; break;
+                    }
+                }
+                if (inside)
+                    verts.push_back(p);
+            }
+        }
+    }
+    // Sort verts CCW around face.normal for a well-formed polygon (implement as needed)
+    return verts;
+}
+
+void TriangulateFace(const std::vector<glm::vec3>& verts, std::vector<Triangle>& outTris) {
+    for (size_t i = 1; i+1 < verts.size(); ++i) {
+        outTris.push_back(Triangle(verts, verts[i], verts[i+1]));
+    }
+}
 
 string trim(const string& s)
 {
@@ -126,9 +187,9 @@ bool parseBrushFace(const string& line, TBFace& face)
     if (!getNextToken(ss, token)) return false; face.uScale   = stof(token);
     if (!getNextToken(ss, token)) return false; face.vScale   = stof(token);
 
-    if (getNextToken(ss, token)) face.surfaceFlag = stoi(token);
-    if (getNextToken(ss, token)) face.contentsFlag = stoi(token);
-    if (getNextToken(ss, token)) face.value = stoi(token);
+    // if (getNextToken(ss, token)) face.surfaceFlag = stoi(token);
+    // if (getNextToken(ss, token)) face.contentsFlag = stoi(token);
+    // if (getNextToken(ss, token)) face.value = stoi(token);
     return true;
 }
 
@@ -184,14 +245,6 @@ TBMap readMap(const string& filename)
     }
     return map;
 }
-
-vector<float> triangulateMap(TBMap map)
-{
-    vector<float> triangles;
-    // go through all faces of all brushes in map
-    for(map.entities)
-    {
-    }
 
 int main(int argc, char* argv[])
 {
